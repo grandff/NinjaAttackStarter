@@ -33,7 +33,41 @@ func + (left: CGPoint, right : CGPoint) -> CGPoint{
   return CGPoint(x: left.x + right.x, y: left.y + right.y)
 }
 
+func - (left : CGPoint, right : CGPoint) -> CGPoint{
+  return CGPoint(x: left.x - right.x, y: left.y - right.y)
+}
 
+func * (point : CGPoint, scalar : CGFloat) -> CGPoint{
+  return CGPoint(x: point.x * scalar, y: point.y * scalar)
+}
+
+func / (point : CGPoint, scalar : CGFloat) -> CGPoint{
+  return CGPoint(x: point.x / scalar, y : point.y / scalar)
+}
+
+#if !(arch(x86_64) || arch(arm64))
+func sqrt(a : CGFloat) -> CGFloat{
+  return CGFloat(sqrtf(Float(a)))
+}
+#endif
+
+extension CGPoint{
+  func length() -> CGFloat{
+    return sqrt(x*x + y*y)
+  }
+  
+  func normalized() -> CGPoint{
+    return self / length()
+  }
+}
+
+// struct - 물리 범주에 대한 상수들
+struct PhysicsCategory {
+  static let none : UInt32 = 0
+  static let all : UInt32 = UInt32.max
+  static let monster : UInt32 = 0b1
+  static let projectile : UInt32 = 0b10
+}
 
 class GameScene: SKScene {
   // Adding sprite
@@ -47,6 +81,10 @@ class GameScene: SKScene {
     player.position = CGPoint(x: size.width * 0.1, y: size.height * 0.5)
     // 3
     addChild(player)  // 캐릭터를 씬 에 추가
+    
+    // delegate
+    physicsWorld.gravity = .zero        // no gravity
+    physicsWorld.contactDelegate = self
     
     // Call the method to create monsters
     run(SKAction.repeatForever(SKAction.sequence([SKAction.run(addMonster), SKAction.wait(forDuration: 0.1)])))
@@ -75,6 +113,13 @@ class GameScene: SKScene {
     // add the monster to the scene
     addChild(monster)
     
+    // setting monster physics
+    monster.physicsBody = SKPhysicsBody(rectangleOf: monster.size)    // physicsbody 생성
+    monster.physicsBody?.isDynamic = true   // 다이나믹 설정을 하면 sprite 의 움직임을 제어하지 않음..?
+    monster.physicsBody?.categoryBitMask = PhysicsCategory.monster
+    monster.physicsBody?.contactTestBitMask = PhysicsCategory.projectile
+    monster.physicsBody?.collisionBitMask = PhysicsCategory.none
+    
     // determine spped of the monster
     let actualDuration = random(min: CGFloat(2.0), max: CGFloat(4.0))
     
@@ -83,5 +128,59 @@ class GameScene: SKScene {
     let actionMoveDone = SKAction.removeFromParent()
     
     monster.run(SKAction.sequence([actionMove, actionMoveDone]))
+  }
+  
+  // shooting
+  override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+    // 1 - Choose one of the touches to work with
+    guard let touch = touches.first else{return}
+    let touchLocation = touch.location(in: self)
+    
+    // 2 - Set up initial location of projectile
+    let projectile = SKSpriteNode(imageNamed: "projectile")
+    projectile.position = player.position   // projectile을 player위치에 설정
+    
+    // 3 - Determine offset of location to projectile
+    let offset = touchLocation - projectile.position
+    
+    // 4 - Bail out if you are shooting down of backwards
+    if offset.x < 0 {return}
+    
+    // 5 - OK to add now - you've double checked position
+    addChild(projectile)
+    
+    // setting projectile physics
+    projectile.physicsBody = SKPhysicsBody(circleOfRadius: projectile.size.width / 2)
+    projectile.physicsBody?.isDynamic = true
+    projectile.physicsBody?.categoryBitMask = PhysicsCategory.projectile
+    projectile.physicsBody?.contactTestBitMask = PhysicsCategory.monster
+    projectile.physicsBody?.collisionBitMask = PhysicsCategory.none
+    projectile.physicsBody?.usesPreciseCollisionDetection = true
+    
+    // 6 - Get the direction of where to shoot
+    let direction = offset.normalized()
+    
+    // 7 - Make it shoot far enough to be guaranteed off screen
+    let shootAmount = direction * 1000
+    
+    // 8 - Add the shoot amount to the current position
+    let realDest = shootAmount + projectile.position
+    
+    // 9 - Create the actions
+    let actionMode = SKAction.move(to: realDest, duration: 2.0)
+    let actionModeDone = SKAction.removeFromParent()
+    projectile.run(SKAction.sequence([actionMode, actionModeDone]))
+  }
+  
+  func projectileDidCollideWithMonstr(projectile : SKSpriteNode, monster : SKSpriteNode){
+    print("Hit")
+    projectile.removeFromParent()
+    monster.removeFromParent()
+  }
+}
+
+extension GameScene : SKPhysicsContactDelegate{
+  func didBegin(_ contact: SKPhysicsContact) {
+    
   }
 }
